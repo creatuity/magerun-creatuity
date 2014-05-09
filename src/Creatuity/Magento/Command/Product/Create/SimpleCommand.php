@@ -19,6 +19,8 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
     protected $_productData = array();
     protected $_sku;
     protected $_name;
+    protected $_desc;
+    protected $_shortDesc;
     protected $_attributeSetId;
     protected $_type;
     protected $_qty;
@@ -36,6 +38,7 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             ->addArgument('sku', InputArgument::REQUIRED, 'SKU')
             ->addArgument('name', InputArgument::REQUIRED, 'Product Name')
             ->addOption('desc', null, InputOption::VALUE_OPTIONAL, "Product description")
+            ->addOption('shortdesc', null, InputOption::VALUE_OPTIONAL, "Product description (short)")
             ->addOption('attributeset', null, InputOption::VALUE_OPTIONAL, "Attribute Set (i.e., 'Default')")
             ->addOption('type', null, InputOption::VALUE_OPTIONAL, "Type (i.e., 'simple')")
             ->addOption('qty', null, InputOption::VALUE_OPTIONAL, "Inventory quantity")
@@ -55,6 +58,26 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
+    {
+        $this->_preExecute($input, $output);
+
+        $this->_resetEverything();
+
+        try {
+            $this->_output->write("<info>Creating product... </info>");
+            $product = $this->_createProduct($this->_productData);
+            $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
+        } catch (\Exception $e) {
+            $this->_output->writeln("<error>Problem creating product: " . $e->getMessage() . "</error>");
+        }
+    }
+
+    /**
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @return int|void
+     */
+    protected function _preExecute(InputInterface $input, OutputInterface $output)
     {
         $this->_input = $input;
         $this->_output = $output;
@@ -97,23 +120,14 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         $statusModel = \Mage::getModel('catalog/product_status');
         $this->_status = (($status == 1) ? $statusModel::STATUS_ENABLED : $statusModel::STATUS_DISABLED); 
 
-        $this->_resetEverything();
-
         if ($this->_input->getArgument('sku')) { $this->_sku = $this->_input->getArgument('sku'); }
         if ($this->_input->getArgument('name')) { $this->_name = $this->_input->getArgument('name'); }
-        $this->_productData['sku'] = $this->_sku;
-        $this->_productData['name'] = $this->_name;
         if ($this->_input->getOption('desc')) { $this->_desc = $this->_input->getOption('desc'); }
         else { $this->_desc = $this->_name; }
-        $this->_productData['desc'] = $this->_desc;
 
-        try {
-            $this->_output->writeln("Creating product... ");
-            $product = $this->_createProduct($this->_productData);
-            $this->_output->writeln("Done, id : " . $product->getId());
-        } catch (\Exception $e) {
-            $this->_output->writeln("<error>Problem creating product: " . $e->getMessage() . "</error>");
-        }        
+        if ($this->_input->getOption('shortdesc')) { $this->_shortDesc = $this->_input->getOption('shortdesc'); }
+        else { $this->_shortDesc = $this->_desc; }
+
     }
 
     /**
@@ -122,16 +136,16 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
     protected function _resetEverything()
     {
         $data = array(
-        'sku' => null,
-        'name' => null,
-        'desc' => null,
+        'sku' => $this->_sku,
+        'name' => $this->_name,
+        'desc' => $this->_desc,
         'attributeSetId' => $this->_attributeSetId,
         'type' => $this->_type,
         'weight' => 0,
         'status' => $this->_status,
         'visibility' => $this->_visibility,
         'price' => 0,
-        'shortDesc' => null,
+        'shortDesc' => $this->_shortDesc,
         'stockData' => array(
             'is_in_stock' => $this->_inStock,
             'qty' => $this->_qty,
@@ -149,9 +163,6 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
      */
     protected function _createProduct($data)
     {
-        if ($data['shortDesc'] == null)
-        { $data['shortDesc'] = $data['desc']; }
-
         $product = \Mage::getModel('catalog/product');
         foreach ($data as $dataKey => $dataVal)
         {

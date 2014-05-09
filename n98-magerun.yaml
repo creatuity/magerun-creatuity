@@ -4,4 +4,5 @@ autoloaders:
 commands:
    customCommands:
        - Creatuity\Magento\Command\Product\Create\SimpleCommand
-#       - Creatuity\Magento\Command\Product\Create\DummyCommand
+       - Creatuity\Magento\Command\Product\Create\SequenceCommand
+       - Creatuity\Magento\Command\System\Category\ListCommand
