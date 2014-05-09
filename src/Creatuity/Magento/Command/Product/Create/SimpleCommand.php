@@ -45,8 +45,8 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             ->addOption('instock', null, InputOption::VALUE_OPTIONAL, "Inventory in stock (0: No, 1: Yes)")
             ->addOption('visibility', null, InputOption::VALUE_OPTIONAL, "Visibility (none, catalog, search, both)")
             ->addOption('taxclassid', null, InputOption::VALUE_OPTIONAL, "Tax class id (i.e., 'Taxable Goods')")
-            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (i.e. '1,2')")
-            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (i.e. '1,2')")
+            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (default is none, i.e. '1,2')")
+            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (default is all, i.e. '1,2')")
             ->addOption('status', null, InputOption::VALUE_OPTIONAL, "Status (0: disabled, 1: enabled)")
             ->setDescription('(Experimental) Create a product.')
         ;
@@ -113,8 +113,13 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         }
 
         $this->_categoryIds = ($this->_input->getOption('categoryid') ? explode(',',$this->_input->getOption('categoryid')) : array());
-        $this->_websiteIds = ($this->_input->getOption('websiteid') ? explode(',',$this->_input->getOption('websiteid')) : array());
+        $this->_websiteIds = ($this->_input->getOption('websiteid') ? explode(',',$this->_input->getOption('websiteid')) : null);
 
+        if ($this->_websiteIds == null)
+        {
+            $this->_websiteIds = array_keys(\Mage::app()->getWebsites(true));
+        }
+        
         
         $status = ($this->_input->getOption('status') ? $this->_input->getOption('status') : 1);
         $statusModel = \Mage::getModel('catalog/product_status');

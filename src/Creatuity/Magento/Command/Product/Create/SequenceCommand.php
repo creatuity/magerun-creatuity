@@ -12,17 +12,39 @@ class SequenceCommand extends SimpleCommand
 {
     protected $_start;
     protected $_count;
+    protected $_stop;
 
     protected $_formatSKU;
     protected $_formatName;
     protected $_formatDesc;
 
     protected $_current;
+    protected $_offset;
+
+    protected $_padcount;
 
     const MACRO_CURRENT = 0;
+    const MACRO_OFFSET  = 1;
+    const MACRO_START   = 2;
+    const MACRO_END     = 3;
+    const MACRO_COUNT   = 4;
+    const MACRO_CURRENT_PAD = 5;
+    const MACRO_OFFSET_PAD  = 6;
+    const MACRO_START_PAD   = 7;
+    const MACRO_END_PAD     = 8;
+    const MACRO_COUNT_PAD   = 9;
 
     protected $_macros = array(
-        self::MACRO_CURRENT => '{{current}}',
+        self::MACRO_CURRENT => '{{current}}',   // Current item number (start+offset)
+        self::MACRO_OFFSET  => '{{offset}}',    // Current offset from start (offset)
+        self::MACRO_START   => '{{start}}',     // Starting number (start)
+        self::MACRO_END     => '{{end}}',       // Ending number (stop)
+        self::MACRO_COUNT   => '{{count}}',     // Total count to preform (count)
+        self::MACRO_CURRENT_PAD => '{{current_pad}}',   // Current item number (start+offset), zero padded
+        self::MACRO_OFFSET_PAD  => '{{offset_pad}}',    // Current offset from start (offset), zero padded
+        self::MACRO_START_PAD   => '{{start_pad}}',     // Starting number (start), zero padded
+        self::MACRO_END_PAD     => '{{end_pad}}',       // Ending number (stop), zero padded
+        self::MACRO_COUNT_PAD   => '{{count_pad}}',     // Total count to preform (count), zero padded
     );
 
     protected function configure()
@@ -41,9 +63,10 @@ class SequenceCommand extends SimpleCommand
             ->addOption('instock', null, InputOption::VALUE_OPTIONAL, "Inventory in stock (0: No, 1: Yes)")
             ->addOption('visibility', null, InputOption::VALUE_OPTIONAL, "Visibility (none, catalog, search, both)")
             ->addOption('taxclassid', null, InputOption::VALUE_OPTIONAL, "Tax class id (i.e., 'Taxable Goods')")
-            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (i.e. '1,2')")
-            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (i.e. '1,2')")
+            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (default is none, i.e. '1,2')")
+            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (default is all, i.e. '1,2')")
             ->addOption('status', null, InputOption::VALUE_OPTIONAL, "Status (0: disabled, 1: enabled)")
+            ->addOption('padcount', null, InputOption::VALUE_OPTIONAL, "Amount of padding for {{.._pad}} macros (default 10)")
             ->setDescription('(Experimental) Create a product.')
         ;
     }
@@ -57,17 +80,15 @@ class SequenceCommand extends SimpleCommand
     {
         $this->_preExecute($input, $output);
         
-        $min = $this->_start;
-        $max = $this->_start + $this->_count;
-        $total = $this->_count;
-        for ($i = 1; $i <= $this->_count; $i++)
+        $this->_end = $this->_start + $this->_count;
+        for ($this->_offset = 0; $this->_offset < $this->_count; $this->_offset++)
         {
-            $this->_current = $min+$i;
+            $this->_current = $this->_start+$this->_offset;
 
             $this->_resetEverything();
             
             try {
-                $this->_output->write("<info>Creating product $i / $total... </info>");
+                $this->_output->write("<info>Creating product " . ($this->_offset + 1) . " / " . $this->_end . "... </info>");
                 $product = $this->_createProduct($this->_productData);
                 $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
             } catch (\Exception $e) {
@@ -92,7 +113,10 @@ class SequenceCommand extends SimpleCommand
         $this->_formatName = $this->_name;
         $this->_formatDesc = $this->_desc;
 
-        if (strpos($this->_formatSKU,'{{') === false) { $this->_formatSKU .= '{{current}}'; }
+        if (strpos($this->_formatSKU,'{{') === false) { $this->_formatSKU .= '{{current_pad}}'; }
+
+        if ($this->_input->getOption('padcount')) { $this->_padcount = $this->_input->getOption('padcount'); }
+        else { $this->_padcount = 10; }
     }
 
     protected function _resetEverything()
@@ -109,7 +133,16 @@ class SequenceCommand extends SimpleCommand
         {
             switch ($macroKey)
             {
-                case self::MACRO_CURRENT:       $format = str_ireplace($macroVal, str_pad($this->_current, 10, '0', STR_PAD_LEFT), $format); break;
+                case self::MACRO_CURRENT:       $format = str_ireplace($macroVal, $this->_current, $format); break;
+                case self::MACRO_OFFSET:        $format = str_ireplace($macroVal, $this->_offset, $format); break;
+                case self::MACRO_START:         $format = str_ireplace($macroVal, $this->_start, $format); break;
+                case self::MACRO_END:           $format = str_ireplace($macroVal, $this->_end, $format); break;
+                case self::MACRO_COUNT:         $format = str_ireplace($macroVal, $this->_count, $format); break;
+                case self::MACRO_CURRENT_PAD:   $format = str_ireplace($macroVal, str_pad($this->_current, $this->_padcount, '0', STR_PAD_LEFT), $format); break;
+                case self::MACRO_OFFSET_PAD:    $format = str_ireplace($macroVal, str_pad($this->_offset, $this->_padcount, '0', STR_PAD_LEFT), $format); break;
+                case self::MACRO_START_PAD:     $format = str_ireplace($macroVal, str_pad($this->_start, $this->_padcount, '0', STR_PAD_LEFT), $format); break;
+                case self::MACRO_END_PAD:       $format = str_ireplace($macroVal, str_pad($this->_end, $this->_padcount, '0', STR_PAD_LEFT), $format); break;
+                case self::MACRO_COUNT_PAD:     $format = str_ireplace($macroVal, str_pad($this->_count, $this->_padcount, '0', STR_PAD_LEFT), $format); break;
             }
         }
         return $format;
