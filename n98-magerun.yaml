@@ -1,0 +1,7 @@
+autoloaders:
+  Creatuity: %module%/src
+
+commands:
+   customCommands:
+       - Creatuity\Magento\Command\Product\Create\SimpleCommand
+#       - Creatuity\Magento\Command\Product\Create\DummyCommand

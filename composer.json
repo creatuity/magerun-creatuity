@@ -1,0 +1,24 @@
+{
+    "name": "creatuity/magerun-creatuity",
+    "type": "library",
+    "description": "Addon commands for N98 MageRun",
+    "keywords": ["magerun"],
+    "homepage": "https://github.com/creatuity/magerun-creatuity",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Jonathan Vaughn",
+            "email": "jonathan@creatuity.com",
+            "homepage": "http://www.creatuity.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=5.3.0"
+    },
+    "autoload": {
+        "psr-0": {
+            "Creatuity": "src/"
+        }
+    }
+}
