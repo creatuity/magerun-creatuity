@@ -17,6 +17,7 @@ class SequenceCommand extends SimpleCommand
     protected $_formatSKU;
     protected $_formatName;
     protected $_formatDesc;
+    protected $_formatShortDesc;
 
     protected $_current;
     protected $_offset;
@@ -49,25 +50,13 @@ class SequenceCommand extends SimpleCommand
 
     protected function configure()
     {
+        parent::configure();
         $this
             ->setName('product:create:sequence')
-            ->addArgument('sku', InputArgument::REQUIRED, 'SKU format string')
-            ->addArgument('name', InputArgument::REQUIRED, 'Product Name format string')
             ->addArgument('count', InputArgument::REQUIRED, 'Number of products to create')
             ->addOption('start', null, InputOption::VALUE_OPTIONAL, "Starting product number (default 0)")
-            ->addOption('desc', null, InputOption::VALUE_OPTIONAL, "Product description format string")
-            ->addOption('shortdesc', null, InputOption::VALUE_OPTIONAL, "Product description (short)")
-            ->addOption('attributeset', null, InputOption::VALUE_OPTIONAL, "Attribute Set (i.e., 'Default')")
-            ->addOption('type', null, InputOption::VALUE_OPTIONAL, "Type (i.e., 'simple')")
-            ->addOption('qty', null, InputOption::VALUE_OPTIONAL, "Inventory quantity")
-            ->addOption('instock', null, InputOption::VALUE_OPTIONAL, "Inventory in stock (0: No, 1: Yes)")
-            ->addOption('visibility', null, InputOption::VALUE_OPTIONAL, "Visibility (none, catalog, search, both)")
-            ->addOption('taxclassid', null, InputOption::VALUE_OPTIONAL, "Tax class id (i.e., 'Taxable Goods')")
-            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (default is none, i.e. '1,2')")
-            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (default is all, i.e. '1,2')")
-            ->addOption('status', null, InputOption::VALUE_OPTIONAL, "Status (0: disabled, 1: enabled)")
             ->addOption('padcount', null, InputOption::VALUE_OPTIONAL, "Amount of padding for {{.._pad}} macros (default 10)")
-            ->setDescription('(Experimental) Create a product.')
+            ->setDescription('(Experimental) Create a sequence of products.')
         ;
     }
 
@@ -81,6 +70,8 @@ class SequenceCommand extends SimpleCommand
         $this->_preExecute($input, $output);
         
         $this->_end = $this->_start + $this->_count;
+        $products = array();
+
         for ($this->_offset = 0; $this->_offset < $this->_count; $this->_offset++)
         {
             $this->_current = $this->_start+$this->_offset;
@@ -88,9 +79,27 @@ class SequenceCommand extends SimpleCommand
             $this->_resetEverything();
             
             try {
-                $this->_output->write("<info>Creating product " . ($this->_offset + 1) . " / " . $this->_end . "... </info>");
-                $product = $this->_createProduct($this->_productData);
-                $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
+                if ($this->_hasFSI())
+                {
+                    if (($this->_offset + 1) % 1000 == 0) { $status = true; } else { $status = false; }
+                    if ($status) { $this->_output->write("<info>Generating product " . ($this->_offset + 1) . " / " . $this->_count . "... </info>"); }
+                    $products[] = $this->_generateProduct($this->_productData);
+                    if ($status) { $this->_output->writeln("<info>Done.</info>"); }
+                    if (($this->_offset == ($this->_count - 1)) || 
+                        (($this->_offset + 1) % 5000 == 0))
+                    {
+                        $this->_output->write("Importing products... </info>");
+                        $this->_importProducts($products);
+                        $this->_output->writeln("<info>Done.</info>");
+                        $products = array();
+                    }
+                }
+                else
+                {
+                    $this->_output->write("<info>Creating product " . ($this->_offset + 1) . " / " . $this->_count . "... </info>");
+                    $product = $this->_createProduct($this->_productData);
+                    $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
+                }
             } catch (\Exception $e) {
                 $this->_output->writeln("<error>Problem creating product: " . $e->getMessage() . "</error>");
             }
@@ -112,6 +121,7 @@ class SequenceCommand extends SimpleCommand
         $this->_formatSKU = $this->_sku;
         $this->_formatName = $this->_name;
         $this->_formatDesc = $this->_desc;
+        $this->_formatShortDesc = $this->_shortDesc;
 
         if (strpos($this->_formatSKU,'{{') === false) { $this->_formatSKU .= '{{current_pad}}'; }
 
@@ -124,6 +134,7 @@ class SequenceCommand extends SimpleCommand
         $this->_sku = $this->_formatString($this->_formatSKU);
         $this->_name = $this->_formatString($this->_formatName);
         $this->_desc = $this->_formatString($this->_formatDesc);
+        $this->_shortDesc = $this->_formatString($this->_formatShortDesc);
         parent::_resetEverything();
     }
 

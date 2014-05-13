@@ -22,6 +22,7 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
     protected $_desc;
     protected $_shortDesc;
     protected $_attributeSetId;
+    protected $_attributeSet;
     protected $_type;
     protected $_qty;
     protected $_taxClassId;
@@ -30,6 +31,12 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
     protected $_categoryIds;
     protected $_websiteIds;
     protected $_status;
+    protected $_websites;
+    protected $_websiteCodes;
+    protected $_categories;
+    protected $_image;
+
+    protected $_mediaAttributeId;
 
     protected function configure()
     {
@@ -46,10 +53,18 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             ->addOption('visibility', null, InputOption::VALUE_OPTIONAL, "Visibility (none, catalog, search, both)")
             ->addOption('taxclassid', null, InputOption::VALUE_OPTIONAL, "Tax class id (i.e., 'Taxable Goods')")
             ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (default is none, i.e. '1,2')")
+            ->addOption('category', null, InputOption::VALUE_OPTIONAL, "Category name(s) (full paths)")
             ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (default is all, i.e. '1,2')")
+            ->addOption('website', null, InputOption::VALUE_OPTIONAL, "Website name(s) (i.e. 'base')")
             ->addOption('status', null, InputOption::VALUE_OPTIONAL, "Status (0: disabled, 1: enabled)")
+            ->addOption('image', null, InputOption::VALUE_OPTIONAL, "Image filename (i.e. '/import/xyz/8.jpg')")
             ->setDescription('(Experimental) Create a product.')
         ;
+    }
+
+    protected function _hasFSI()
+    {
+        return \Mage::helper('core')->isModuleEnabled('AvS_FastSimpleImport');
     }
 
     /**
@@ -64,9 +79,21 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         $this->_resetEverything();
 
         try {
-            $this->_output->write("<info>Creating product... </info>");
-            $product = $this->_createProduct($this->_productData);
-            $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
+            if ($this->_hasFSI())
+            {
+                $this->_output->write("<info>Generating product... </info>");
+                $product = array($this->_generateProduct($this->_productData));
+                $this->_output->writeln("<info>Done.</info>");
+                $this->_output->write("Importing product... </info>");
+                $this->_importProducts($product);
+                $this->_output->writeln("<info>Done.</info>");
+            }
+            else
+            {
+                $this->_output->write("<info>Creating product... </info>");
+                $product = $this->_createProduct($this->_productData);
+                $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
+            }
         } catch (\Exception $e) {
             $this->_output->writeln("<error>Problem creating product: " . $e->getMessage() . "</error>");
         }
@@ -84,11 +111,11 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         $this->detectMagento($output, true);
         $this->initMagento();
         
-        $attributeSet = ($this->_input->getOption('attributeset') ? $this->_input->getOption('attributeset') : 'Default');
+        $this->_attributeSet = ($this->_input->getOption('attributeset') ? $this->_input->getOption('attributeset') : 'Default');
         $this->_attributeSetId = \Mage::getModel('eav/entity_attribute_set')
             ->getCollection()
             ->setEntityTypeFilter(\Mage::getModel('eav/entity')->setType('catalog_product')->getTypeId())
-            ->addFieldToFilter('attribute_set_name', $attributeSet)
+            ->addFieldToFilter('attribute_set_name', $this->_attributeSet)
             ->getFirstItem()
             ->getAttributeSetId();
 
@@ -112,14 +139,66 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             case 'both':    $this->_visibility = $visibility::VISIBILITY_BOTH; break;
         }
 
-        $this->_categoryIds = ($this->_input->getOption('categoryid') ? explode(',',$this->_input->getOption('categoryid')) : array());
-        $this->_websiteIds = ($this->_input->getOption('websiteid') ? explode(',',$this->_input->getOption('websiteid')) : null);
+        $categoryIds = ($this->_input->getOption('categoryid') ? explode(',',$this->_input->getOption('categoryid')) : array());
+        $websiteIds = ($this->_input->getOption('websiteid') ? explode(',',$this->_input->getOption('websiteid')) : null);
+        $categories = ($this->_input->getOption('category') ? explode(',',$this->_input->getOption('category')) : array());
+        $websites = ($this->_input->getOption('website') ? explode(',',$this->_input->getOption('website')) : null);
+
+        $allWebsites = array();
+        foreach (\Mage::app()->getWebsites(true) as $store)
+        {
+            $allWebsites[$store->getId()] = array(
+                'id' => $store->getId(),
+                'code' => $store->getCode(),
+                'name' => $store->getName(),
+            );
+        }
+        
+        $allCategories = \Creatuity\Magento\Util\CategoryUtil::getCategories();
 
         if ($this->_websiteIds == null)
         {
-            $this->_websiteIds = array_keys(\Mage::app()->getWebsites(true));
+            $this->_websiteIds = array_keys($allWebsites);
         }
-        
+        //TODO : get categories and map names to ids and vice versa, and do same for websites
+        foreach ($categoryIds as $catId)
+        {
+            $catPath = (isset($allCategories[$catId]) ? $allCategories[$catId]['path'] : null);
+            if (($catPath) &&
+                (!in_array($catPath,$categories))) { $categories[] = $catPath; }
+        }
+        foreach ($categories as $catPath)
+        {
+            $catId = \Creatuity\Magento\Util\CategoryUtil::getCategoryIdByPath($catPath);
+            if (($catId) &&
+                (!in_array($catId, $categoryIds))) { $categoryIds[] = $catId; }
+        }
+        if (($websiteIds == null) && ($websites == null)) { $websites = array('Main Website'); }
+        if ($websiteIds == null) { $websiteIds = array(); }
+        if ($websites == null) { $websites = array(); }
+        foreach ($websiteIds as $webId)
+        {
+            $webName = (isset($allWebsites[$webId]) ? $allWebsites[$webId]['name'] : null);
+            echo "$webName\n";
+            if (($webName) &&
+                (!in_array($webName, $websites))) { $websites[] = $webName; }                
+        }
+        foreach ($websites as $webName)
+        {
+            $webId = \Mage::getResourceModel('core/website_collection')->addFieldToFilter('name', $webName);
+            if (($webId) &&
+                (!in_array($webId, $websiteIds))) {$websiteIds[] = array_shift($webId->getAllIds()); }
+        }
+        $this->_categoryIds = $categoryIds;
+        $this->_websiteIds = $websiteIds;
+        $this->_categories = $categories;
+        $this->_websites = $websites;
+
+        $this->_websiteCodes = array();
+        foreach ($this->_websiteIds as $webId)
+        {
+            $this->_websiteCodes[] = $allWebsites[$webId]['code'];
+        }
         
         $status = ($this->_input->getOption('status') ? $this->_input->getOption('status') : 1);
         $statusModel = \Mage::getModel('catalog/product_status');
@@ -133,6 +212,13 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         if ($this->_input->getOption('shortdesc')) { $this->_shortDesc = $this->_input->getOption('shortdesc'); }
         else { $this->_shortDesc = $this->_desc; }
 
+        $this->_mediaAttributeId = \Mage::getSingleton('catalog/product')
+            ->getResource()
+            ->getAttribute('media_gallery')
+            ->getAttributeId();
+
+        if ($this->_input->getOption('image')) { $this->_image = $this->_input->getOption('image'); }
+        else { $this->_image = ''; }
     }
 
     /**
@@ -145,6 +231,7 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         'name' => $this->_name,
         'desc' => $this->_desc,
         'attributeSetId' => $this->_attributeSetId,
+        'attributeSet' => $this->_attributeSet,
         'type' => $this->_type,
         'weight' => 0,
         'status' => $this->_status,
@@ -158,6 +245,10 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         'taxClassId' => $this->_taxClassId,
         'categoryIds' => $this->_categoryIds,
         'websiteIds' => $this->_websiteIds,
+        'categories' => $this->_categories,
+        'websites' => $this->_websites,
+        'websiteCodes' => $this->_websiteCodes,
+        'image' => $this->_image,
         );
 
         $this->_productData = $data;
@@ -195,5 +286,49 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
 
         $product->save();
         return $product;
+    }
+
+    /**
+     *
+     */
+    protected function _generateProduct($data)
+    {
+        $product = array(
+            'sku'               => $data['sku'],
+            '_type'             => $data['type'],
+            '_attribute_set'    => $data['attributeSet'],
+            '_product_websites' => $data['websiteCodes'],
+            'name'              => $data['name'],
+            'price'             => $data['price'],
+            'description'       => $data['desc'],
+            'short_description' => $data['shortDesc'],
+            'weight'            => $data['weight'],
+            'status'            => $data['status'],
+            'visibility'        => $data['visibility'],
+            'tax_class_id'      => $data['taxClassId'],
+            'is_in_stock'       => $data['stockData']['is_in_stock'],
+            'qty'               => $data['stockData']['qty'],
+            '_category'         => $data['categories'],
+            '_media_image'      => $data['image'],
+            '_media_attribute_id'   => $this->_mediaAttributeId,
+            '_media_is_disabled'    => 0,
+            '_media_lable'          => 'image', //$data['image'], //Typo intentional, that's what Magento expects
+            '_media_position'       => 1,
+            'media_gallery'         => 0, //$data['image'],
+            'image'                 => $data['image'],
+            'small_image'           => $data['image'],
+            'thumbnail'             => $data['image'],
+        );
+
+        return $product;
+    }
+
+    protected function _importProducts($data)
+    {
+        $import = \Mage::getModel('fastsimpleimport/import');
+        $import
+            ->setBehavior('append')
+            ->setUseNestedArrays(true)
+            ->processProductImport($data);
     }
 }
