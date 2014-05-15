@@ -49,7 +49,7 @@ class ListCommand extends AbstractMagentoCommand
 
         ksort($table);
         $this->getHelper('table')
-            ->setHeaders(array('id', 'parentId', 'name', 'urlKey', 'urlPath'))
+            ->setHeaders(array('Id', 'ParentId', 'Name', 'URL Key', 'URL', 'Path'))
             ->renderByFormat($output, $table, $input->getOption('format'));
     }
 /*
