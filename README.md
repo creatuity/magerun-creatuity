@@ -25,7 +25,7 @@ Installation
 ### Using composer ###
 1. Add the repository to your `composer.json` file under the `require` node.
 
-        "kalenjordan/magerun-addons": "dev-master"
+        "creatuity/magerun-creatuity": "dev-master"
     
     to your `composer.json` file.
 
