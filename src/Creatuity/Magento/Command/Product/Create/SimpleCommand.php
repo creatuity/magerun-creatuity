@@ -35,6 +35,9 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
     protected $_websiteCodes;
     protected $_categories;
     protected $_image;
+    protected $_imageSmall;
+    protected $_imageThumb;
+    protected $_imageExtra;
 
     protected $_mediaAttributeId;
 
@@ -44,20 +47,22 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             ->setName('product:create:simple')
             ->addArgument('sku', InputArgument::REQUIRED, 'SKU')
             ->addArgument('name', InputArgument::REQUIRED, 'Product Name')
-            ->addOption('desc', null, InputOption::VALUE_OPTIONAL, "Product description")
-            ->addOption('shortdesc', null, InputOption::VALUE_OPTIONAL, "Product description (short)")
+            ->addOption('desc', null, InputOption::VALUE_OPTIONAL, "Product description (default: same as name)")
+            ->addOption('shortdesc', null, InputOption::VALUE_OPTIONAL, "Product description, short (default: same as description)")
             ->addOption('attributeset', null, InputOption::VALUE_OPTIONAL, "Attribute Set (i.e., 'Default')")
             ->addOption('type', null, InputOption::VALUE_OPTIONAL, "Type (i.e., 'simple')")
-            ->addOption('qty', null, InputOption::VALUE_OPTIONAL, "Inventory quantity")
-            ->addOption('instock', null, InputOption::VALUE_OPTIONAL, "Inventory in stock (0: No, 1: Yes)")
-            ->addOption('visibility', null, InputOption::VALUE_OPTIONAL, "Visibility (none, catalog, search, both)")
-            ->addOption('taxclassid', null, InputOption::VALUE_OPTIONAL, "Tax class id (i.e., 'Taxable Goods')")
-            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (default is none, i.e. '1,2')")
-            ->addOption('category', null, InputOption::VALUE_OPTIONAL, "Category name(s) (full paths)")
-            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (default is all, i.e. '1,2')")
-            ->addOption('website', null, InputOption::VALUE_OPTIONAL, "Website name(s) (i.e. 'base')")
-            ->addOption('status', null, InputOption::VALUE_OPTIONAL, "Status (0: disabled, 1: enabled)")
-            ->addOption('image', null, InputOption::VALUE_OPTIONAL, "Image filename (i.e. '/import/xyz/8.jpg')")
+            ->addOption('qty', null, InputOption::VALUE_OPTIONAL, "Inventory quantity (default 42)")
+            ->addOption('instock', null, InputOption::VALUE_OPTIONAL, "Inventory in stock (0: No, 1: Yes - default)")
+            ->addOption('visibility', null, InputOption::VALUE_OPTIONAL, "Visibility (none, catalog, search, both - default)")
+            ->addOption('taxclassid', null, InputOption::VALUE_OPTIONAL, "Tax class id (i.e., 'Taxable Goods', default 'default')")
+            ->addOption('categoryid', null, InputOption::VALUE_OPTIONAL, "Category Id(s) (i.e. '1,2', default none or all (random))")
+            ->addOption('category', null, InputOption::VALUE_OPTIONAL, "Category name(s) (full paths, same defaults as categoryid)")
+            ->addOption('websiteid', null, InputOption::VALUE_OPTIONAL, "Website Id(s) (i.e. '1,2', default is all)")
+            ->addOption('website', null, InputOption::VALUE_OPTIONAL, "Website name(s) (i.e. 'base', same defaults as websiteid)")
+            ->addOption('status', null, InputOption::VALUE_OPTIONAL, "Status (0: disabled, 1: enabled - default)")
+            ->addOption('image', null, InputOption::VALUE_OPTIONAL, "Image filename relative to media/import (i.e. '/xyz/8.jpg')")
+            ->addOption('imagesmall', null, InputOption::VALUE_OPTIONAL, "Small Image filename (i.e. '/xyz/8.jpg')")
+            ->addOption('imagethumb', null, InputOption::VALUE_OPTIONAL, "Thumbnail Image filename (i.e. '/xyz/8.jpg')")
             ->setDescription('(Experimental) Create a product.')
         ;
     }
@@ -74,13 +79,18 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        // Call preExecute (separating it allows that portion to be overloaded in inherited classes)
         $this->_preExecute($input, $output);
 
+        // Set the various attributes 
         $this->_resetEverything();
 
         try {
             if ($this->_hasFSI())
             {
+                // Use AvS_FastSimpleImport (this is actually slower for single / smaller quantities),
+                // but since it's faster for larger quantities that's the code path that has been
+                // fully implemented, so we still use it here for single products.
                 $this->_output->write("<info>Generating product... </info>");
                 $product = array($this->_generateProduct($this->_productData));
                 $this->_output->writeln("<info>Done.</info>");
@@ -90,6 +100,7 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             }
             else
             {
+                // Use regular Magento product creation. This path is not fully implemented yet.
                 $this->_output->write("<info>Creating product... </info>");
                 $product = $this->_createProduct($this->_productData);
                 $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
@@ -111,6 +122,7 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         $this->detectMagento($output, true);
         $this->initMagento();
         
+        // EAV attribute set for products
         $this->_attributeSet = ($this->_input->getOption('attributeset') ? $this->_input->getOption('attributeset') : 'Default');
         $this->_attributeSetId = \Mage::getModel('eav/entity_attribute_set')
             ->getCollection()
@@ -119,16 +131,22 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             ->getFirstItem()
             ->getAttributeSetId();
 
+        // Product type (currently only 'simple' is handled)
         $this->_type = ($this->_input->getOption('type') ? $this->_input->getOption('type') : 'simple');
 
+        // Product stock (quantity and in stock status)
         $this->_qty = ($this->_input->getOption('qty') ? $this->_input->getOption('qty') : 42);
         $this->_inStock = ($this->_input->getOption('instock') ? $this->_input->getOption('instock') : 1);
+
+        // Tax Class
         $taxClass = ($this->_input->getOption('taxclassid') ? $this->_input->getOption('taxclassid') : 'default');
         $this->_taxClassId = \Mage::getModel('tax/class')
             ->getCollection()
             ->addFieldToFilter('class_name',$taxClass)
             ->load()->getFirstItem()
             ->getId();
+
+        // Product visibility
         $visibility = \Mage::getModel('catalog/product_visibility');
         $visType = ($this->_input->getOption('visibility') ? $this->_input->getOption('visibility') : 'both');
         switch (strtolower($visType))
@@ -139,90 +157,157 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             case 'both':    $this->_visibility = $visibility::VISIBILITY_BOTH; break;
         }
 
+        // Category and Website to create products in (we map the id and name variants across to each other,
+        // so it doesn't matter how you specify them, you can even mix them)
         $categoryIds = ($this->_input->getOption('categoryid') ? explode(',',$this->_input->getOption('categoryid')) : array());
         $websiteIds = ($this->_input->getOption('websiteid') ? explode(',',$this->_input->getOption('websiteid')) : null);
         $categories = ($this->_input->getOption('category') ? explode(',',$this->_input->getOption('category')) : array());
         $websites = ($this->_input->getOption('website') ? explode(',',$this->_input->getOption('website')) : null);
 
-        $allWebsites = array();
-        foreach (\Mage::app()->getWebsites(true) as $store)
-        {
-            $allWebsites[$store->getId()] = array(
-                'id' => $store->getId(),
-                'code' => $store->getCode(),
-                'name' => $store->getName(),
-            );
-        }
+        // Map the Ids into category names, and vice versa
+        $categories = $this->_mapCategories($categoryIds, $categories);
+        $categoryIds = $this->_mapCategoryIds($categories, $categoryIds);
+        // Ditto
+        $websites = $this->_mapWebsites($websiteIds, $websites);
+        $websiteIds = $this->_mapWebsiteIds($websites, $websiteIds);
+
+        $this->_categoryIds = $categoryIds;
+        $this->_websiteIds = $websiteIds;
+        $this->_categories = $categories;
+        $this->_websites = $websites;
         
+        // Product status
+        $status = ($this->_input->getOption('status') ? $this->_input->getOption('status') : 1);
+        $statusModel = \Mage::getModel('catalog/product_status');
+        $this->_status = (($status == 1) ? $statusModel::STATUS_ENABLED : $statusModel::STATUS_DISABLED); 
+
+        // Get SKU, name, description
+        if ($this->_input->getArgument('sku')) { $this->_sku = $this->_input->getArgument('sku'); }
+        if ($this->_input->getArgument('name')) { $this->_name = $this->_input->getArgument('name'); }
+        if ($this->_input->getOption('desc')) { $this->_desc = $this->_input->getOption('desc'); }
+        else { $this->_desc = $this->_name; }
+
+        // Get short description, if non specified, use description.
+        if ($this->_input->getOption('shortdesc')) { $this->_shortDesc = $this->_input->getOption('shortdesc'); }
+        else { $this->_shortDesc = $this->_desc; }
+
+        // Get image media attribute id 
+        $this->_mediaAttributeId = \Mage::getSingleton('catalog/product')
+            ->getResource()
+            ->getAttribute('media_gallery')
+            ->getAttributeId();
+        
+        // Get image, small image, and thumbnail filenames
+        if ($this->_input->getOption('image')) { $this->_image = $this->_input->getOption('image'); }
+        else { $this->_image = ''; }
+
+        $this->_imageSmall = ($this->_input->getOption('imagesmall')) ? $this->_input->getOption('imagesmall') : $this->_image;
+        $this->_imageThumb = ($this->_input->getOption('imagethumb')) ? $this->_input->getOption('imagethumb') : $this->_image;
+    }
+
+    /**
+     * Maps the category IDs into category names
+     */
+    protected function _mapCategories($categoryIds,$categories)
+    {
+        // Get all the categories
         $allCategories = \Creatuity\Magento\Util\CategoryUtil::getCategories();
 
-        if ($this->_websiteIds == null)
+        // If we had null for the categoryIds, we're going to grab all of them
+        // This is to support random generator's default behavior of all,
+        // where the simple and sequence generators default to none
+        if ($categoryIds == null)
         {
-            $this->_websiteIds = array_keys($allWebsites);
+            $categoryIds = array_keys($allCategories);
         }
-        //TODO : get categories and map names to ids and vice versa, and do same for websites
+
         foreach ($categoryIds as $catId)
         {
             $catPath = (isset($allCategories[$catId]) ? $allCategories[$catId]['path'] : null);
             if (($catPath) &&
                 (!in_array($catPath,$categories))) { $categories[] = $catPath; }
         }
+        return $categories;
+    }
+    
+    /**
+     * Maps the category names into IDs
+     */
+    protected function _mapCategoryIds($categories,$categoryIds)
+    {
         foreach ($categories as $catPath)
         {
             $catId = \Creatuity\Magento\Util\CategoryUtil::getCategoryIdByPath($catPath);
             if (($catId) &&
                 (!in_array($catId, $categoryIds))) { $categoryIds[] = $catId; }
         }
-        if (($websiteIds == null) && ($websites == null)) { $websites = array('Main Website'); }
-        if ($websiteIds == null) { $websiteIds = array(); }
-        if ($websites == null) { $websites = array(); }
+        return $categoryIds;
+    }
+    
+    /**
+     * Maps the website IDs into website names
+     * Also handles setting the website codes array
+     */
+    protected function _mapWebsites($websiteIds, $websites)
+    {
+        $allWebsites = array();
+
+        // We can't really be adding products to admin, can we?
+        // We can add others here if we need to (possibly from a command line
+        // option), but that hasn't been implemented yet.
+        $blacklist = array('admin');
+        // Get all websites, filtering against the blacklist
+        foreach (\Mage::app()->getWebsites(true) as $store)
+        {
+            if (!in_array($store->getCode(), $blacklist))
+            {
+                $allWebsites[$store->getId()] = array(
+                    'id' => $store->getId(),
+                    'code' => $store->getCode(),
+                    'name' => $store->getName(),
+                );
+            }
+        }
+
+        // Generate the website codes array
+        $this->_websiteCodes = array();
+        foreach ($this->_websiteIds as $webId)
+        {
+            $this->_websiteCodes[] = $allWebsites[$webId]['code'];
+        }
+
+        // If websiteIds is null, we get all
+        // Since we run this first then _mapWebsiteIds, the result is both get all
+        if ($websiteIds == null)
+        {
+            $websiteIds = array_keys($allWebsites);
+        }
+
         foreach ($websiteIds as $webId)
         {
             $webName = (isset($allWebsites[$webId]) ? $allWebsites[$webId]['name'] : null);
-            echo "$webName\n";
             if (($webName) &&
-                (!in_array($webName, $websites))) { $websites[] = $webName; }                
+                (!in_array($webName, $websites))) { $websites[] = $webName; }
         }
+        return $websites;
+    }
+    
+    /**
+     * Maps the website names into website IDs
+     */
+    protected function _mapWebsiteIds($websites, $websiteIds)
+    {
         foreach ($websites as $webName)
         {
             $webId = \Mage::getResourceModel('core/website_collection')->addFieldToFilter('name', $webName);
             if (($webId) &&
                 (!in_array($webId, $websiteIds))) {$websiteIds[] = array_shift($webId->getAllIds()); }
         }
-        $this->_categoryIds = $categoryIds;
-        $this->_websiteIds = $websiteIds;
-        $this->_categories = $categories;
-        $this->_websites = $websites;
-
-        $this->_websiteCodes = array();
-        foreach ($this->_websiteIds as $webId)
-        {
-            $this->_websiteCodes[] = $allWebsites[$webId]['code'];
-        }
-        
-        $status = ($this->_input->getOption('status') ? $this->_input->getOption('status') : 1);
-        $statusModel = \Mage::getModel('catalog/product_status');
-        $this->_status = (($status == 1) ? $statusModel::STATUS_ENABLED : $statusModel::STATUS_DISABLED); 
-
-        if ($this->_input->getArgument('sku')) { $this->_sku = $this->_input->getArgument('sku'); }
-        if ($this->_input->getArgument('name')) { $this->_name = $this->_input->getArgument('name'); }
-        if ($this->_input->getOption('desc')) { $this->_desc = $this->_input->getOption('desc'); }
-        else { $this->_desc = $this->_name; }
-
-        if ($this->_input->getOption('shortdesc')) { $this->_shortDesc = $this->_input->getOption('shortdesc'); }
-        else { $this->_shortDesc = $this->_desc; }
-
-        $this->_mediaAttributeId = \Mage::getSingleton('catalog/product')
-            ->getResource()
-            ->getAttribute('media_gallery')
-            ->getAttributeId();
-
-        if ($this->_input->getOption('image')) { $this->_image = $this->_input->getOption('image'); }
-        else { $this->_image = ''; }
+        return $websiteIds;
     }
 
     /**
-     *
+     * Set product attributes based on the configuration
      */
     protected function _resetEverything()
     {
@@ -249,13 +334,20 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
         'websites' => $this->_websites,
         'websiteCodes' => $this->_websiteCodes,
         'image' => $this->_image,
+        'imageSmall' => $this->_imageSmall,
+        'imageThumb' => $this->_imageThumb,
         );
+
+        // Make sure this is a valid array
+        // Currently only used by random generator
+        $this->_imageExtra = array();
 
         $this->_productData = $data;
     }
 
     /**
-     *
+     * Create product using Magento product model 
+     * TODO: Images, and other things ...
      */
     protected function _createProduct($data)
     {
@@ -289,7 +381,7 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
     }
 
     /**
-     *
+     * Create product to be imported using AvS_FastSimpleImport
      */
     protected function _generateProduct($data)
     {
@@ -316,13 +408,18 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             '_media_position'       => 1,
             'media_gallery'         => 0, //$data['image'],
             'image'                 => $data['image'],
-            'small_image'           => $data['image'],
-            'thumbnail'             => $data['image'],
+            'small_image'           => $data['imageSmall'],
+            'thumbnail'             => $data['imageThumb'],
         );
-
-        return $product;
+        // _imageExtra is to make it easier for the random generator 
+        // to generate data that gets pulled in here, without messing
+        // with the existing inherited code flow too much.. 
+        return array_merge($product, $this->_imageExtra);
     }
 
+    /**
+     * Import array of products using AvS_FastSimpleImport
+     */
     protected function _importProducts($data)
     {
         $import = \Mage::getModel('fastsimpleimport/import');

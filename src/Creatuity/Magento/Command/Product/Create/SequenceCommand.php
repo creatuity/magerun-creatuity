@@ -24,6 +24,7 @@ class SequenceCommand extends SimpleCommand
 
     protected $_padcount;
 
+    // Definitions for text replacement / expansion macros
     const MACRO_CURRENT = 0;
     const MACRO_OFFSET  = 1;
     const MACRO_START   = 2;
@@ -54,7 +55,7 @@ class SequenceCommand extends SimpleCommand
         $this
             ->setName('product:create:sequence')
             ->addArgument('count', InputArgument::REQUIRED, 'Number of products to create')
-            ->addOption('start', null, InputOption::VALUE_OPTIONAL, "Starting product number (default 0)")
+            ->addOption('start', null, InputOption::VALUE_OPTIONAL, "Starting product number to count from (default 0)")
             ->addOption('padcount', null, InputOption::VALUE_OPTIONAL, "Amount of padding for {{.._pad}} macros (default 10)")
             ->setDescription('(Experimental) Create a sequence of products.')
         ;
@@ -67,28 +68,46 @@ class SequenceCommand extends SimpleCommand
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        // Call preExecute (separating it allows that portion to be overloaded in inherited classes)
         $this->_preExecute($input, $output);
         
+        // Set up loop stuff
         $this->_end = $this->_start + $this->_count;
         $products = array();
 
+        // Loop for however many products to create
         for ($this->_offset = 0; $this->_offset < $this->_count; $this->_offset++)
         {
+            // Update current # counter
             $this->_current = $this->_start+$this->_offset;
 
+            // Set the various attributes
             $this->_resetEverything();
             
             try {
                 if ($this->_hasFSI())
                 {
-                    if (($this->_offset + 1) % 1000 == 0) { $status = true; } else { $status = false; }
-                    if ($status) { $this->_output->write("<info>Generating product " . ($this->_offset + 1) . " / " . $this->_count . "... </info>"); }
+                    // Use AvS_FastSimpleImport (this is actually slower for single / smaller quantities),
+                    // but since it's faster for larger quantities that's the code path that has been
+                    // fully implemented, so we still use it here for single products.
+
+                    // First, last, and every 1000 products, output status update
+                    if ((($this->_offset + 1) % 1000 == 0) || ($this->_offset == 0) || ($this->_offset == ($this->_count - 1)))
+                        { $status = true; } else { $status = false; }
+                    // Status
+                    if ($status)  
+                        { $this->_output->write("<info>Generating product " . ($this->_offset + 1) . " / " . $this->_count . "... </info>"); }
+                    // Generate a product
                     $products[] = $this->_generateProduct($this->_productData);
-                    if ($status) { $this->_output->writeln("<info>Done.</info>"); }
+                    // Status
+                    if ($status) 
+                        { $this->_output->writeln("<info>Done.</info>"); }
+                    // Last and every 5000 products, import our current buffer of products and clear it
+                    // This is to save on memory usage, during development exceeded 256MB around ~62k products
                     if (($this->_offset == ($this->_count - 1)) || 
                         (($this->_offset + 1) % 5000 == 0))
                     {
-                        $this->_output->write("Importing products... </info>");
+                        $this->_output->write("<info>Importing products... </info>");
                         $this->_importProducts($products);
                         $this->_output->writeln("<info>Done.</info>");
                         $products = array();
@@ -96,6 +115,7 @@ class SequenceCommand extends SimpleCommand
                 }
                 else
                 {
+                    // Use regular Magento product creation. This path is not fully implemented yet.
                     $this->_output->write("<info>Creating product " . ($this->_offset + 1) . " / " . $this->_count . "... </info>");
                     $product = $this->_createProduct($this->_productData);
                     $this->_output->writeln("<info>Done, id : " . $product->getId() . "</info>");
@@ -113,35 +133,51 @@ class SequenceCommand extends SimpleCommand
      */
     protected function _preExecute(InputInterface $input, OutputInterface $output)
     {
+        // Run the parent's implementation first
         parent::_preExecute($input, $output);
 
+        // Get count and start
         if ($this->_input->getArgument('count')) { $this->_count = $this->_input->getArgument('count'); }
         $this->_start = ($this->_input->getOption('start') ? $this->_input->getOption('start') : 0);
 
+        // Set aside the SKU, name, description, and short description settings so we can access them
+        // to regenerate the results based on macro expansion
         $this->_formatSKU = $this->_sku;
         $this->_formatName = $this->_name;
         $this->_formatDesc = $this->_desc;
         $this->_formatShortDesc = $this->_shortDesc;
 
+        // If no macros were supplied for SKU, since it must be unique, we append {{current_pad}}
         if (strpos($this->_formatSKU,'{{') === false) { $this->_formatSKU .= '{{current_pad}}'; }
 
+        // Get the padding amount
         if ($this->_input->getOption('padcount')) { $this->_padcount = $this->_input->getOption('padcount'); }
         else { $this->_padcount = 10; }
     }
 
+    /**
+     * Set product attributes based on the configuration
+     */
     protected function _resetEverything()
     {
+        // Process the formatting strings to prepare the SKU, name, description, and short description
         $this->_sku = $this->_formatString($this->_formatSKU);
         $this->_name = $this->_formatString($this->_formatName);
         $this->_desc = $this->_formatString($this->_formatDesc);
         $this->_shortDesc = $this->_formatString($this->_formatShortDesc);
+        // Call the parent implementation
         parent::_resetEverything();
     }
 
+    /**
+     * Simple macro expansion / replacement function
+     */
     protected function _formatString($format)
     {
+        // Loop over each available type of macro
         foreach ($this->_macros as $macroKey => $macroVal)
         {
+            // Switch on the type and process
             switch ($macroKey)
             {
                 case self::MACRO_CURRENT:       $format = str_ireplace($macroVal, $this->_current, $format); break;
