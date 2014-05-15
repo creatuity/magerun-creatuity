@@ -52,33 +52,5 @@ class ListCommand extends AbstractMagentoCommand
             ->setHeaders(array('Id', 'ParentId', 'Name', 'URL Key', 'URL', 'Path'))
             ->renderByFormat($output, $table, $input->getOption('format'));
     }
-/*
-    protected function _getCategories()
-    {
-        $tree = \Mage::getModel('catalog/category')->getTreeModel();
-        $tree->load();
-
-        $categories = array();
-        $nodeIds = $tree->getCollection()->getAllIds();
-        if ($nodeIds)
-        {
-            foreach ($nodeIds as $nodeId)
-            {
-                $category = \Mage::getModel('catalog/category');
-                $category->load($nodeId);
-
-                $categories[$category->getId()] = array(
-                    'id' => $category->getId(),
-                    'parentId' => $category->getParentId(),
-                    'name' => $category->getName(),
-                    'urlKey' => $category->getUrlKey(),
-                    'urlPath' => $category->getUrlPath(),
-                );
-            }
-        }
-
-        return $categories;
-
-    }*/
 }
 
