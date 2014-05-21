@@ -70,7 +70,21 @@ class SequenceCommand extends SimpleCommand
     {
         // Call preExecute (separating it allows that portion to be overloaded in inherited classes)
         $this->_preExecute($input, $output);
-        
+
+        // We may need more memory ... experimentation is that need around 20-25k per product
+        // (taking the eventual peak and dividing it by # of products). Doubling that for safety...
+        $memory_limit = ($this->_count * 50 * 1024) + memory_get_usage(true);
+        $current_limit = ini_get('memory_limit');
+        if (stripos($current_limit, 'k') !== false) { $current_limit = intval($current_limit) * 1024; }
+        if (stripos($current_limit, 'm') !== false) { $current_limit = intval($current_limit) * 1024 * 1024; }
+        if (stripos($current_limit, 'g') !== false) { $current_limit = intval($current_limit) * 1024 * 1024 * 1024; }
+        if ($memory_limit > $current_limit) 
+        { 
+            ini_set('memory_limit', $memory_limit); 
+            $this->_output->writeln("<error>memory_limit too low for item count. Increased memory limit from " . ($current_limit / 1024 / 1024) . "MB  to " . 
+                ($memory_limit / 1024 / 1024) . "MB.</error>");
+        }
+
         // Set up loop stuff
         $this->_end = $this->_start + $this->_count;
         $products = array();
@@ -102,10 +116,12 @@ class SequenceCommand extends SimpleCommand
                     // Status
                     if ($status) 
                         { $this->_output->writeln("<info>Done.</info>"); }
-                    // Last and every 5000 products, import our current buffer of products and clear it
-                    // This is to save on memory usage, during development exceeded 256MB around ~62k products
+                    // Last and every 15000 products, import our current buffer of products and clear it
+                    // This is to save on memory usage, during development exceeded 256MB around ~62k products,
+                    // and though the loop reduces it, peak still gets higher on each loop (something in Magento 
+                    // keeps using more each pass... )
                     if (($this->_offset == ($this->_count - 1)) || 
-                        (($this->_offset + 1) % 5000 == 0))
+                        (($this->_offset + 1) % 15000 == 0))
                     {
                         $this->_output->write("<info>Importing products... </info>");
                         $this->_importProducts($products);

@@ -145,6 +145,15 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             ->addFieldToFilter('class_name',$taxClass)
             ->load()->getFirstItem()
             ->getId();
+        // If that didn't work, try...
+        if ($this->_taxClassId == null)
+        {
+            $this->_taxClassId = \Mage::getModel('tax/class')
+                ->getCollection()
+                ->addFieldToFilter('class_name','Taxable Goods')
+                ->load()->getFirstItem()
+                ->getId();
+        }
 
         // Product visibility
         $visibility = \Mage::getModel('catalog/product_visibility');
@@ -269,13 +278,6 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             }
         }
 
-        // Generate the website codes array
-        $this->_websiteCodes = array();
-        foreach ($this->_websiteIds as $webId)
-        {
-            $this->_websiteCodes[] = $allWebsites[$webId]['code'];
-        }
-
         // If websiteIds is null, we get all
         // Since we run this first then _mapWebsiteIds, the result is both get all
         if ($websiteIds == null)
@@ -283,12 +285,22 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
             $websiteIds = array_keys($allWebsites);
         }
 
+        if ($websites == null) { $websites = array(); }
+
         foreach ($websiteIds as $webId)
         {
             $webName = (isset($allWebsites[$webId]) ? $allWebsites[$webId]['name'] : null);
             if (($webName) &&
                 (!in_array($webName, $websites))) { $websites[] = $webName; }
         }
+
+        // Generate the website codes array
+        $this->_websiteCodes = array();
+        foreach ($websiteIds as $webId)
+        {
+            $this->_websiteCodes[] = $allWebsites[$webId]['code'];
+        }
+
         return $websites;
     }
     
@@ -297,6 +309,8 @@ class SimpleCommand extends \N98\Magento\Command\AbstractMagentoCommand
      */
     protected function _mapWebsiteIds($websites, $websiteIds)
     {
+        if ($websiteIds == null) { $websiteIds = array(); }
+
         foreach ($websites as $webName)
         {
             $webId = \Mage::getResourceModel('core/website_collection')->addFieldToFilter('name', $webName);
